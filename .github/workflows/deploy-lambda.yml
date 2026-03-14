@@ -1,0 +1,51 @@
+name: Deploy to Lambda and Redeploy APIs
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22.x'
+
+      - name: Install zip
+        run: sudo apt-get install zip
+
+      - name: Install dependencies and create lambda.zip
+        run: |
+          cd backend
+          # Install production dependencies only
+          npm ci --production
+          # Create zip including node_modules
+          zip -r lambda.zip . -x ".env" ".gitignore" "*.DS_Store"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update Lambda function code
+        run: |
+          cd backend
+          aws lambda update-function-code \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://lambda.zip
+
+      - name: Redeploy all APIs
+        run: |
+          aws apigateway create-deployment \
+            --rest-api-id ${{ secrets.API_ID }} \
+            --stage-name ${{ secrets.API_STAGE }} \
+            --description "Redeploy API after Lambda update"
